@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600&display=swap" rel="stylesheet">
+  
+  <?!= include('css'); ?>
+</head>
+<body>
+  <div id="app" v-cloak>
+    
+    <!-- Header with Navigation -->
+    <header class="sticky-top">
+      <div class="nav-bar">
+        <div class="logo">BANGYA BONG ZING SHOP</div>
+        <div class="nav-icons">
+          <div class="icon-btn" @click="showHistoryPage" title="ประวัติการสั่งซื้อ">
+            <i class="fa-solid fa-clock-rotate-left"></i>
+          </div>
+          <div class="cart-icon icon-btn" @click="toggleCart" title="ตะกร้าสินค้า">
+            <i class="fa-solid fa-basket-shopping"></i>
+            <span v-if="cartTotalItems > 0" class="badge">{{ cartTotalItems }}</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Search Bar (แสดงเฉพาะหน้า Shop) -->
+      <div v-if="currentPage === 'shop'" class="search-bar">
+        <input type="text" v-model="searchQuery" placeholder="ค้นหาสินค้า...">
+        <i class="fa-solid fa-magnifying-glass"></i>
+      </div>
+
+      <!-- Category Filter (แสดงเฉพาะหน้า Shop) -->
+      <div v-if="currentPage === 'shop'" class="category-scroll">
+        <button :class="{active: selectedCategory === 'All'}" @click="selectedCategory = 'All'">ทั้งหมด</button>
+        <button 
+          v-for="cat in uniqueCategories" 
+          :key="cat" 
+          :class="{active: selectedCategory === cat}" 
+          @click="selectedCategory = cat"
+        >
+          {{ cat }}
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <div class="container content-area">
+      
+      <!-- Loading State -->
+      <div v-if="loading" class="loading">
+        <i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดข้อมูล...
+      </div>
+      
+      <!-- Shop Page (Product Grid) -->
+      <div v-else-if="currentPage === 'shop'">
+        <div v-if="filteredProductGroups.length === 0" class="empty-state">
+          <i class="fa-solid fa-box-open"></i>
+          <p>ไม่พบสินค้าที่ค้นหา</p>
+        </div>
+        
+        <div v-else class="product-grid">
+          <div 
+            class="product-card" 
+            v-for="group in filteredProductGroups" 
+            :key="group.name"
+            @click="openProductModal(group)"
+          >
+            <div class="prod-img" :style="{backgroundImage: 'url(' + group.image + ')'}"></div>
+            <div class="prod-info">
+              <h3>{{ group.name }}</h3>
+              <p class="price-start">เริ่มต้น ฿{{ group.minPrice }}</p>
+              <button class="btn-add">เลือกขนาด</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Order History Page -->
+      <div v-else-if="currentPage === 'history'">
+        <div class="page-header">
+          <button class="btn-back" @click="currentPage = 'shop'">
+            <i class="fa-solid fa-arrow-left"></i> กลับ
+          </button>
+          <h2>ประวัติการสั่งซื้อ</h2>
+        </div>
+
+        <div v-if="loadingHistory" class="loading">
+          <i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดประวัติ...
+        </div>
+
+        <div v-else-if="orderHistory.length === 0" class="empty-state">
+          <i class="fa-solid fa-receipt"></i>
+          <p>ยังไม่มีประวัติการสั่งซื้อ</p>
+        </div>
+
+        <div v-else class="history-list">
+          <div 
+            v-for="order in orderHistory" 
+            :key="order.orderId"
+            class="history-card"
+            :class="'card-' + order.status.toLowerCase()"
+          >
+            <div class="history-header">
+              <span class="order-date">{{ order.dateTime }}</span>
+              <span 
+                class="status-badge"
+                :class="'status-' + order.status.toLowerCase()"
+              >
+                {{ getStatusText(order.status) }}
+              </span>
+            </div>
+            
+            <div class="order-id">
+              <i class="fa-solid fa-hashtag"></i> {{ order.orderId }}
+            </div>
+
+            <div class="history-items">
+              <i class="fa-solid fa-box"></i> {{ order.items }}
+            </div>
+
+            <div class="history-footer">
+              <div class="shipping-info">
+                <i class="fa-solid fa-truck"></i> {{ order.shippingMethod }}
+              </div>
+              <div class="total-price">
+                ฿{{ order.totalAmount }}
+              </div>
+            </div>
+
+            <div v-if="order.slipUrl" class="slip-link">
+              <a :href="order.slipUrl" target="_blank">
+                <i class="fa-solid fa-image"></i> ดูสลิปโอนเงิน
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Product Detail Modal (Bottom Sheet) -->
+    <div v-if="showProductModal" class="modal-overlay" @click.self="closeProductModal">
+      <div class="modal-bottom">
+        <div class="modal-header">
+          <h3>{{ activeProductGroup.name }}</h3>
+          <button @click="closeProductModal" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <img :src="activeProductGroup.image" class="modal-img" alt="Product Image">
+          <p class="txt-label">เลือกขนาด:</p>
+          <div class="variant-list">
+            <div 
+              class="variant-item" 
+              v-for="variant in activeProductGroup.variants" 
+              :key="variant.code"
+            >
+              <div class="v-info">
+                <span class="v-weight">{{ variant.weight }}</span>
+                <span class="v-price">฿{{ variant.price }}</span>
+              </div>
+              <div class="v-action">
+                <button 
+                  v-if="getCartQty(variant) > 0" 
+                  @click="removeFromCart(variant)" 
+                  class="btn-minus"
+                >
+                  -
+                </button>
+                <span v-if="getCartQty(variant) > 0" class="qty">{{ getCartQty(variant) }}</span>
+                <button @click="addToCart(variant)" class="btn-plus">+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-primary full-width" @click="closeProductModal">ตกลง</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cart Modal (Center) -->
+    <div v-if="showCartModal" class="modal-overlay">
+      <div class="modal-center">
+        <div class="modal-header">
+          <h3>ตะกร้าสินค้า</h3>
+          <button @click="toggleCart" class="close-btn">&times;</button>
+        </div>
+        
+        <div class="modal-body scrollable">
+          <div v-if="cart.length === 0" class="empty-cart">
+            <i class="fa-solid fa-cart-shopping"></i>
+            <p>ไม่มีสินค้าในตะกร้า</p>
+          </div>
+          
+          <div v-else>
+            <div class="cart-item" v-for="item in cart" :key="item.code">
+              <div class="c-name">
+                {{ item.name }} <small>({{ item.weight }})</small>
+              </div>
+              <div class="c-ctrl">
+                <button @click="removeFromCart(item)">-</button>
+                <span>{{ item.qty }}</span>
+                <button @click="addToCart(item)">+</button>
+              </div>
+              <div class="c-price">฿{{ item.price * item.qty }}</div>
+            </div>
+
+            <hr>
+            <div class="summary-row">
+              <span>ยอดรวมสินค้า</span>
+              <span>฿{{ cartTotalAmount }}</span>
+            </div>
+
+            <div class="shipping-section">
+              <p class="txt-label">วิธีการจัดส่ง:</p>
+              <div class="radio-group">
+                <label v-for="rule in availableDeliveryMethods" :key="rule.method">
+                  <input type="radio" :value="rule.method" v-model="selectedShippingMethod">
+                  <span>{{ rule.method }}</span>
+                  <span class="s-cost" v-if="calculateShipping(rule.method) > 0">
+                    +฿{{ calculateShipping(rule.method) }}
+                  </span>
+                  <span class="s-cost free" v-else>ฟรี</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer" v-if="cart.length > 0">
+          <div class="total-final">
+            <span>ยอดสุทธิ (รวมส่ง)</span>
+            <span class="txt-highlight">฿{{ finalTotal }}</span>
+          </div>
+          <div class="btn-group">
+            <button class="btn-secondary" @click="resetCart">ล้างตะกร้า</button>
+            <button 
+              class="btn-primary" 
+              @click="goToCheckoutForm" 
+              :disabled="!selectedShippingMethod"
+            >
+              สั่งซื้อ
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Checkout Form Modal -->
+    <div v-if="showCheckoutForm" class="modal-overlay">
+      <div class="modal-center">
+        <div class="modal-header">
+          <h3>ข้อมูลจัดส่ง</h3>
+          <button @click="showCheckoutForm = false" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body scrollable">
+          <form @submit.prevent="submitOrder">
+            <div class="form-group">
+              <label>ชื่อ-นามสกุล <span class="required">*</span></label>
+              <input type="text" v-model="form.name" required placeholder="กรุณากรอกชื่อ">
+            </div>
+            <div class="form-group">
+              <label>เบอร์โทรศัพท์ <span class="required">*</span></label>
+              <input type="tel" v-model="form.phone" required placeholder="0xx-xxx-xxxx">
+            </div>
+            <div class="form-group">
+              <label>ที่อยู่จัดส่ง <span class="required">*</span></label>
+              <textarea v-model="form.address" rows="3" required placeholder="กรุณากรอกที่อยู่"></textarea>
+            </div>
+
+            <!-- Payment Section (if transfer method) -->
+            <div v-if="isTransferMethod" class="payment-section">
+              <div class="payment-info">
+                <p class="txt-center">กรุณาโอนเงินจำนวน</p>
+                <p class="txt-center txt-amount">฿{{ finalTotal }}</p>
+              </div>
+              
+              <img 
+                src="https://static.wixstatic.com/media/e06bab_a0b0a5c86540401a9dda9b5f414fac8a~mv2.webp" 
+                class="qr-code"
+                alt="QR Code"
+              > 
+              
+              <div class="upload-container">
+                <label for="file-upload" class="custom-file-upload">
+                  <i class="fa-solid fa-cloud-arrow-up"></i>
+                  <span>แตะเพื่อแนบสลิปโอนเงิน</span>
+                  <div v-if="uploadedFileName" class="file-name-display">
+                    <i class="fa-solid fa-check-circle"></i> {{ uploadedFileName }}
+                  </div>
+                </label>
+                <input 
+                  id="file-upload" 
+                  type="file" 
+                  accept="image/*" 
+                  @change="handleFileUpload"
+                >
+              </div>
+            </div>
+
+            <button 
+              type="submit" 
+              class="btn-primary full-width mt-3" 
+              :disabled="isSubmitting"
+            >
+              <span v-if="isSubmitting">
+                <i class="fa-solid fa-spinner fa-spin"></i> กำลังบันทึก...
+              </span>
+              <span v-else>ยืนยันการสั่งซื้อ</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <?!= include('script'); ?>
+</body>
+</html>
